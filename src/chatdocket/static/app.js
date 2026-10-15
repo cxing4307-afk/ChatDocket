@@ -82,7 +82,10 @@ function readAsBase64(file) {
 }
 
 async function uploadFiles(files) {
-  const supported = [...files].filter((file) => /\.(jpe?g|png)$/i.test(file.name));
+  const supported = [...files].filter((file) => {
+    const path = (file.webkitRelativePath || "").split("/").filter(Boolean);
+    return /\.(jpe?g|png)$/i.test(file.name) && (path.length <= 2);
+  });
   if (!supported.length) throw new Error("No JPG or PNG screenshots were found");
   setStatus(`Reading ${supported.length} screenshots…`);
   const payload = await Promise.all(supported.map(async (file) => ({
@@ -102,8 +105,13 @@ async function filesFromEntry(entry) {
   }
   if (!entry.isDirectory) return [];
   const reader = entry.createReader();
-  const entries = await new Promise((resolve, reject) => reader.readEntries(resolve, reject));
-  return (await Promise.all(entries.map(filesFromEntry))).flat();
+  const entries = [];
+  while (true) {
+    const batch = await new Promise((resolve, reject) => reader.readEntries(resolve, reject));
+    if (!batch.length) break;
+    entries.push(...batch);
+  }
+  return (await Promise.all(entries.filter((item) => item.isFile).map(filesFromEntry))).flat();
 }
 
 document.querySelector("#choose-folder").addEventListener("click", () => picker.click());

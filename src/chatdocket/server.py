@@ -19,28 +19,37 @@ class AppState:
         self.uploads = None
 
     def replace_uploads(self, files):
-        if self.uploads:
-            self.uploads.cleanup()
-        self.uploads = tempfile.TemporaryDirectory(prefix="chatdocket-")
-        root = Path(self.uploads.name)
+        uploads = tempfile.TemporaryDirectory(prefix="chatdocket-")
+        root = Path(uploads.name)
         names = []
-        for item in files:
-            name = Path(item["name"]).name
-            if not name or name in names:
-                raise ValueError("Uploaded filenames must be unique")
-            if Path(name).suffix.casefold() not in {".jpg", ".jpeg", ".png"}:
-                continue
-            try:
-                contents = base64.b64decode(item["data"], validate=True)
-            except (ValueError, TypeError) as error:
-                raise ValueError(f"Could not read {name}") from error
-            path = root / name
-            path.write_bytes(contents)
-            modified = float(item.get("modified", 0)) / 1000
-            if modified > 0:
-                os.utime(path, (modified, modified))
-            names.append(name)
-        return root
+        try:
+            for item in files:
+                name = Path(item["name"]).name
+                if not name or name in names:
+                    raise ValueError("Uploaded filenames must be unique")
+                if Path(name).suffix.casefold() not in {".jpg", ".jpeg", ".png"}:
+                    continue
+                try:
+                    contents = base64.b64decode(item["data"], validate=True)
+                except (ValueError, TypeError) as error:
+                    raise ValueError(f"Could not read {name}") from error
+                path = root / name
+                path.write_bytes(contents)
+                modified = float(item.get("modified", 0)) / 1000
+                if modified > 0:
+                    os.utime(path, (modified, modified))
+                names.append(name)
+            images = scan_folder(root)
+            if not images:
+                raise ValueError("No JPG or PNG screenshots were found")
+        except Exception:
+            uploads.cleanup()
+            raise
+        previous_uploads = self.uploads
+        self.uploads = uploads
+        if previous_uploads:
+            previous_uploads.cleanup()
+        return images
 
     def close(self):
         if self.uploads:
@@ -102,10 +111,7 @@ class ChatDocketHandler(BaseHTTPRequestHandler):
             files = payload.get("files", [])
             if not isinstance(files, list) or not files:
                 raise ValueError("Drop a folder containing JPG or PNG screenshots")
-            root = self.server.state.replace_uploads(files)
-            images = scan_folder(root)
-            if not images:
-                raise ValueError("No JPG or PNG screenshots were found")
+            images = self.server.state.replace_uploads(files)
             self.server.state.collection = ImageCollection(images)
             return {"images": self.server.state.image_dicts()}
         if path == "/api/reorder":
@@ -137,10 +143,11 @@ class ChatDocketHandler(BaseHTTPRequestHandler):
                 (item for item in self.server.state.collection.images if item.id == image_id),
                 None,
             )
+            if record is not None:
+                body = record.path.read_bytes()
         if record is None:
             self._json(404, {"error": "Screenshot not found"})
             return
-        body = record.path.read_bytes()
         content_type = "image/png" if record.path.suffix.casefold() == ".png" else "image/jpeg"
         self.send_response(200)
         self.send_header("Content-Type", content_type)

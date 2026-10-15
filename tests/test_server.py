@@ -2,11 +2,16 @@ import json
 import threading
 import base64
 import io
+from pathlib import Path
+from time import sleep
 from urllib.error import HTTPError
+from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 from PIL import Image
+import pytest
 
+from chatdocket.library import ImageCollection
 from chatdocket.server import AppState, make_server
 
 
@@ -109,5 +114,69 @@ def test_upload_accepts_browser_folder_files():
         )
         assert result["images"][0]["filename"] == "chat-7.png"
     finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_failed_upload_keeps_the_previous_session_files():
+    image = io.BytesIO()
+    Image.new("RGB", (60, 100), "white").save(image, "PNG")
+    state = AppState()
+    try:
+        images = state.replace_uploads(
+            [{"name": "chat-1.png", "data": base64.b64encode(image.getvalue()).decode()}]
+        )
+        state.collection = ImageCollection(images)
+
+        with pytest.raises(ValueError, match="Could not read chat-2.png"):
+            state.replace_uploads([{"name": "chat-2.png", "data": "not base64"}])
+
+        assert state.collection.images[0].path.exists()
+    finally:
+        state.close()
+
+
+def test_thumbnail_read_finishes_before_replacing_uploads(monkeypatch):
+    image = io.BytesIO()
+    Image.new("RGB", (60, 100), "white").save(image, "PNG")
+    encoded = base64.b64encode(image.getvalue()).decode()
+    server, base_url = start_server()
+    started = threading.Event()
+    allow_read = threading.Event()
+    upload_finished = threading.Event()
+    try:
+        _, imported = post(
+            base_url, "/api/upload", {"files": [{"name": "chat-1.png", "data": encoded}]}
+        )
+        target = Path(imported["images"][0]["id"])
+        original_read_bytes = Path.read_bytes
+
+        def delayed_read_bytes(path):
+            if path == target:
+                started.set()
+                allow_read.wait(timeout=2)
+            return original_read_bytes(path)
+
+        monkeypatch.setattr(Path, "read_bytes", delayed_read_bytes)
+        thumbnail = threading.Thread(
+            target=lambda: urlopen(f"{base_url}/api/thumbnail?id={quote(str(target))}").read()
+        )
+        thumbnail.start()
+        assert started.wait(timeout=2)
+
+        def replace_upload():
+            post(base_url, "/api/upload", {"files": [{"name": "chat-2.png", "data": encoded}]})
+            upload_finished.set()
+
+        upload = threading.Thread(target=replace_upload)
+        upload.start()
+        sleep(0.1)
+        assert not upload_finished.is_set()
+        allow_read.set()
+        thumbnail.join(timeout=2)
+        upload.join(timeout=2)
+        assert upload_finished.is_set()
+    finally:
+        allow_read.set()
         server.shutdown()
         server.server_close()
