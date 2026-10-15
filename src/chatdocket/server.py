@@ -1,5 +1,8 @@
 import argparse
+import base64
 import json
+import os
+import tempfile
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -13,6 +16,36 @@ class AppState:
     def __init__(self):
         self.collection = ImageCollection([])
         self.lock = threading.Lock()
+        self.uploads = None
+
+    def replace_uploads(self, files):
+        if self.uploads:
+            self.uploads.cleanup()
+        self.uploads = tempfile.TemporaryDirectory(prefix="chatdocket-")
+        root = Path(self.uploads.name)
+        names = []
+        for item in files:
+            name = Path(item["name"]).name
+            if not name or name in names:
+                raise ValueError("Uploaded filenames must be unique")
+            if Path(name).suffix.casefold() not in {".jpg", ".jpeg", ".png"}:
+                continue
+            try:
+                contents = base64.b64decode(item["data"], validate=True)
+            except (ValueError, TypeError) as error:
+                raise ValueError(f"Could not read {name}") from error
+            path = root / name
+            path.write_bytes(contents)
+            modified = float(item.get("modified", 0)) / 1000
+            if modified > 0:
+                os.utime(path, (modified, modified))
+            names.append(name)
+        return root
+
+    def close(self):
+        if self.uploads:
+            self.uploads.cleanup()
+            self.uploads = None
 
     def image_dicts(self):
         return [image.as_dict() for image in self.collection.images]
@@ -22,6 +55,10 @@ class ChatDocketServer(ThreadingHTTPServer):
     def __init__(self, address, state):
         super().__init__(address, ChatDocketHandler)
         self.state = state
+
+    def server_close(self):
+        self.state.close()
+        super().server_close()
 
 
 class ChatDocketHandler(BaseHTTPRequestHandler):
@@ -41,7 +78,7 @@ class ChatDocketHandler(BaseHTTPRequestHandler):
     def _payload(self):
         try:
             length = int(self.headers.get("Content-Length", "0"))
-            if length > 1_000_000:
+            if length > 100_000_000:
                 raise ValueError("Request is too large")
             return json.loads(self.rfile.read(length) or b"{}")
         except (json.JSONDecodeError, ValueError) as error:
@@ -59,6 +96,16 @@ class ChatDocketHandler(BaseHTTPRequestHandler):
     def _dispatch_post(self, path, payload):
         if path == "/api/import":
             images = scan_folder(payload.get("folder", ""))
+            self.server.state.collection = ImageCollection(images)
+            return {"images": self.server.state.image_dicts()}
+        if path == "/api/upload":
+            files = payload.get("files", [])
+            if not isinstance(files, list) or not files:
+                raise ValueError("Drop a folder containing JPG or PNG screenshots")
+            root = self.server.state.replace_uploads(files)
+            images = scan_folder(root)
+            if not images:
+                raise ValueError("No JPG or PNG screenshots were found")
             self.server.state.collection = ImageCollection(images)
             return {"images": self.server.state.image_dicts()}
         if path == "/api/reorder":

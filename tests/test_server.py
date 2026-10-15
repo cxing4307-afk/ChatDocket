@@ -1,5 +1,7 @@
 import json
 import threading
+import base64
+import io
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
@@ -69,6 +71,30 @@ def test_api_returns_a_json_error_for_bad_input(tmp_path):
             assert json.load(error)["error"] == "Choose an existing folder"
         else:
             raise AssertionError("request should fail")
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_upload_accepts_browser_folder_files():
+    image = io.BytesIO()
+    Image.new("RGB", (60, 100), "white").save(image, "PNG")
+    server, base_url = start_server()
+    try:
+        _, result = post(
+            base_url,
+            "/api/upload",
+            {
+                "files": [
+                    {
+                        "name": "chat-7.png",
+                        "data": base64.b64encode(image.getvalue()).decode(),
+                        "modified": 1_772_700_000_000,
+                    }
+                ]
+            },
+        )
+        assert result["images"][0]["filename"] == "chat-7.png"
     finally:
         server.shutdown()
         server.server_close()
