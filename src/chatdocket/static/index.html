@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ChatDocket</title>
+    <link rel="stylesheet" href="/app.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/">ChatDocket</a>
+      <span class="local-badge"><i></i> Local only</span>
+    </header>
+
+    <main>
+      <section class="intro">
+        <p class="eyebrow">Screenshot packet builder</p>
+        <h1>Put chat screenshots<br>in an order that makes sense.</h1>
+        <p class="lede">Drop a folder, fix the sequence, and print a clean A4 PDF. Files stay on this computer.</p>
+      </section>
+
+      <section class="workspace" aria-label="ChatDocket workspace">
+        <div class="drop-panel" id="drop-zone">
+          <input id="folder-picker" type="file" accept="image/jpeg,image/png" webkitdirectory multiple hidden>
+          <div class="folder-mark" aria-hidden="true"></div>
+          <h2>Drop a screenshot folder here</h2>
+          <p>JPG and PNG, sorted by capture time</p>
+          <button class="primary" id="choose-folder" type="button">Choose folder</button>
+          <details>
+            <summary>Or enter a folder path</summary>
+            <form id="path-form" class="path-form">
+              <input id="folder-path" placeholder="/Users/me/Desktop/chat" aria-label="Folder path">
+              <button type="submit">Load</button>
+            </form>
+          </details>
+        </div>
+
+        <div class="review-panel" id="review-panel" hidden>
+          <div class="review-head">
+            <div>
+              <p class="eyebrow">Review</p>
+              <h2><span id="image-count">0</span> screenshots</h2>
+            </div>
+            <button class="quiet" id="start-over" type="button">Choose another folder</button>
+          </div>
+          <p class="drag-note">Drag cards to fix the order. The numbers are the order used in the PDF.</p>
+          <ol class="thumb-grid" id="thumb-grid"></ol>
+
+          <div class="export-bar">
+            <label>
+              Screenshots per page
+              <select id="per-page">
+                <option value="1">1 — largest</option>
+                <option value="2" selected>2 — balanced</option>
+                <option value="4">4 — compact</option>
+              </select>
+            </label>
+            <label class="output-label">
+              Save PDF as
+              <input id="output-path" value="~/Desktop/chatdocket.pdf">
+            </label>
+            <button class="primary export" id="export" type="button">Export PDF</button>
+          </div>
+        </div>
+      </section>
+      <p class="status" id="status" role="status" aria-live="polite"></p>
+    </main>
+
+    <footer>
+      <span>Organizes files. Does not verify evidence or provide legal advice.</span>
+      <span>v0.1.0</span>
+    </footer>
+    <script src="/app.js"></script>
+  </body>
+</html>

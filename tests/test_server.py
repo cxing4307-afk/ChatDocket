@@ -29,6 +29,19 @@ def start_server():
     return server, f"http://{host}:{port}"
 
 
+def test_home_page_serves_the_folder_workspace():
+    server, base_url = start_server()
+    try:
+        with urlopen(base_url) as response:
+            page = response.read().decode()
+        assert response.status == 200
+        assert "Drop a screenshot folder here" in page
+        assert "Does not verify evidence" in page
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 def test_import_reorder_and_export_over_http(tmp_path):
     Image.new("RGB", (100, 180), "white").save(tmp_path / "chat-1.png")
     Image.new("RGB", (100, 180), "gray").save(tmp_path / "chat-2.png")
