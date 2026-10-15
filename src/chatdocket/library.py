@@ -32,6 +32,17 @@ class ImageRecord:
         }
 
 
+class ImageCollection:
+    def __init__(self, images):
+        self.images = list(images)
+
+    def reorder(self, ids):
+        by_id = {image.id: image for image in self.images}
+        if len(ids) != len(by_id) or set(ids) != set(by_id):
+            raise ValueError("Order must contain every imported image exactly once")
+        self.images = [by_id[image_id] for image_id in ids]
+
+
 def _capture_time(path):
     with Image.open(path) as image:
         exif = image.getexif()
